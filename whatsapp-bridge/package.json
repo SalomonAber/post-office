@@ -1,0 +1,16 @@
+{
+  "name": "post-office-whatsapp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Baileys JSON-lines bridge for Post Office.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "lint": "node --check index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "pino": "^9.0.0"
+  }
+}

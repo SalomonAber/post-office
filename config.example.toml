@@ -1,0 +1,45 @@
+[app]
+timezone = "Europe/Berlin"
+database_path = "./post-office.sqlite3"
+state_dir = "./state"
+
+[banlist]
+# Initial MVP supports exact sender/contact IDs and chat IDs.
+sender_ids = [
+  # { source = "signal", id = "+49123456789", reason = "example" },
+]
+chat_ids = [
+  # { source = "whatsapp", id = "12345@g.us", reason = "example" },
+]
+
+[email]
+enabled = false
+smtp_host = "smtp.example.com"
+smtp_port = 587
+smtp_starttls = true
+smtp_username = ""
+smtp_password_env = "POST_OFFICE_SMTP_PASSWORD"
+from_address = "post-office@example.com"
+to_addresses = ["me@example.com"]
+subject_prefix = "Post Office"
+
+[printer]
+enabled = false
+usb_vendor_id = "0x04b8"
+usb_product_id = "0x0202"
+dry_run = true
+
+[sources.signal]
+enabled = false
+signal_cli = "signal-cli"
+account = "+49123456789"
+
+[sources.whatsapp]
+enabled = false
+bridge_command = ["node", "whatsapp-bridge/index.js"]
+
+[sources.instagram]
+enabled = false
+username = ""
+password_env = "POST_OFFICE_INSTAGRAM_PASSWORD"
+poll_interval_seconds = 300
