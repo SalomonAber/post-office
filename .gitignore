@@ -1,0 +1,25 @@
+# Local configuration and secrets
+/config.toml
+/.env
+
+# Local state
+/post-office.sqlite3
+/post-office.sqlite3-*
+/state/
+/.direnv/
+
+# Nix build outputs
+/result
+/result-*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Node
+node_modules/
+npm-debug.log*

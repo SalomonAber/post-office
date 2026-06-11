@@ -24,8 +24,13 @@
             pyproject = true;
             build-system = [ python.pkgs.hatchling ];
             dependencies = [ ];
+            nativeBuildInputs = [ pkgs.makeWrapper ];
             nativeCheckInputs = [ python.pkgs.pytest ];
             checkPhase = "pytest";
+            postInstall = ''
+              wrapProgram $out/bin/post-office \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.signal-cli pkgs.nodejs_22 ]}
+            '';
           };
         });
 

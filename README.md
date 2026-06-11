@@ -31,6 +31,16 @@ post-office --config config.toml print-pending
 pytest
 ```
 
+With Nix, the app package wraps runtime tools such as `signal-cli` and `node`, so `nix run . -- --config config.toml daemon` can find them without entering a shell.
+
+For day-to-day development, `direnv` is optional but convenient:
+
+```sh
+direnv allow
+```
+
+The checked-in `.envrc` uses the flake dev shell, which provides Python, pytest, Ruff, mypy, Node.js, `signal-cli`, and SQLite.
+
 ## Current CLI commands
 
 - `init-db`: create or migrate the SQLite database.
