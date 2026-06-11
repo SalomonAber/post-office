@@ -11,7 +11,9 @@ from post_office.db import Database
 from post_office.filters import BanList
 from post_office.models import Message
 from post_office.outputs.email import EmailSender
+from post_office.outputs.printer import ThermalPrinter
 from post_office.reports.daily import render_daily_report
+from post_office.runtime import IngestionService, LivePrinterService
 from post_office.sources.instagram import normalize_instagram_item
 from post_office.sources.signal import normalize_signal_event
 from post_office.sources.whatsapp import normalize_baileys_event
@@ -25,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("init-db")
     subparsers.add_parser("validate-config")
     subparsers.add_parser("daily-report")
+    subparsers.add_parser("print-pending")
 
     ingest_fixture = subparsers.add_parser("ingest-fixture")
     ingest_fixture.add_argument("source", choices=["signal", "whatsapp", "instagram"])
@@ -57,12 +60,18 @@ def main(argv: list[str] | None = None) -> int:
         if message is None:
             print("fixture did not contain a supported message")
             return 1
-        if not banlist.allows(message):
-            print("message ignored by ban-list")
-            return 0
-        inserted = database.insert_message(message)
-        print("inserted" if inserted else "duplicate")
+        result = IngestionService(database, banlist).ingest(message)
+        print(result.status)
         return 0
+
+    if args.command == "print-pending":
+        printer = ThermalPrinter(config.printer)
+        results = LivePrinterService(database, banlist, printer).process_pending()
+        delivered = sum(1 for result in results if result.delivered)
+        failed = sum(1 for result in results if result.error is not None)
+        filtered = len(results) - delivered - failed
+        print(f"delivered={delivered} filtered={filtered} failed={failed}")
+        return 1 if failed else 0
 
     if args.command == "daily-report":
         window_end = datetime.now(UTC)

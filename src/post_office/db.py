@@ -115,7 +115,7 @@ class Database:
                 SELECT m.*
                 FROM messages m
                 LEFT JOIN delivery_log d ON d.message_id = m.id AND d.target = ?
-                WHERE d.id IS NULL
+                WHERE d.id IS NULL OR d.status = 'failed'
                 ORDER BY m.timestamp ASC
                 """,
                 (target,),
