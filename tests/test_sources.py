@@ -67,6 +67,15 @@ def test_parse_signal_json_output_accepts_empty_and_pretty_json() -> None:
     ) == ({"envelope": {"sourceNumber": "+49123"}},)
 
 
+def test_parse_signal_json_output_accepts_multiple_json_documents() -> None:
+    output = '{"envelope": {"sourceNumber": "+49123"}}\n{"receipt": {"when": 1}}\n'
+
+    assert parse_signal_json_output(output) == (
+        {"envelope": {"sourceNumber": "+49123"}},
+        {"receipt": {"when": 1}},
+    )
+
+
 def test_normalize_whatsapp_event() -> None:
     message = normalize_baileys_event(
         {

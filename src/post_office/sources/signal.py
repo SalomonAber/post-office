@@ -101,7 +101,15 @@ def parse_signal_json_output(output: str) -> tuple[dict[str, Any], ...]:
     stripped = output.strip()
     if not stripped:
         return ()
-    return _parse_signal_payload(json.loads(stripped))
+    decoder = json.JSONDecoder()
+    index = 0
+    events: list[dict[str, Any]] = []
+    while index < len(stripped):
+        payload, index = decoder.raw_decode(stripped, index)
+        events.extend(_parse_signal_payload(payload))
+        while index < len(stripped) and stripped[index].isspace():
+            index += 1
+    return tuple(events)
 
 
 def _parse_signal_payload(payload: object) -> tuple[dict[str, Any], ...]:
