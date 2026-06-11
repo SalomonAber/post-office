@@ -23,8 +23,9 @@ def test_signal_receive_command_uses_json_and_timeout() -> None:
         "signal-cli",
         "-a",
         "+49123",
+        "-o",
+        "json",
         "receive",
-        "--json",
         "--timeout",
         "60",
     )

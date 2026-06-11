@@ -41,6 +41,8 @@ direnv allow
 
 The checked-in `.envrc` uses the flake dev shell, which provides Python, pytest, Ruff, mypy, Node.js, `signal-cli`, and SQLite.
 
+The Signal adapter calls `signal-cli -a ACCOUNT -o json receive --timeout SECONDS`; `-o json` is a global `signal-cli` option and must appear before the `receive` subcommand.
+
 ## Current CLI commands
 
 - `init-db`: create or migrate the SQLite database.

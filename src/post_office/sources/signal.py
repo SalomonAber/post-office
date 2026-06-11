@@ -47,8 +47,9 @@ def signal_receive_command(config: SignalConfig) -> tuple[str, ...]:
         config.signal_cli,
         "-a",
         config.account,
+        "-o",
+        "json",
         "receive",
-        "--json",
         "--timeout",
         str(config.receive_timeout_seconds),
     )
