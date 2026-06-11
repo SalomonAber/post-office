@@ -4,6 +4,7 @@ from post_office.sources.instagram import normalize_instagram_item
 from post_office.sources.signal import (
     normalize_signal_event,
     parse_signal_json_line,
+    signal_list_accounts_command,
     signal_receive_command,
 )
 from post_office.sources.whatsapp import normalize_baileys_event
@@ -18,7 +19,6 @@ def test_signal_receive_command_uses_json_and_timeout() -> None:
             receive_timeout_seconds=60,
         )
     )
-
     assert command == (
         "signal-cli",
         "-a",
@@ -29,6 +29,12 @@ def test_signal_receive_command_uses_json_and_timeout() -> None:
         "--timeout",
         "60",
     )
+
+
+def test_signal_list_accounts_command() -> None:
+    command = signal_list_accounts_command(SignalConfig(enabled=True, signal_cli="signal-cli"))
+
+    assert command == ("signal-cli", "listAccounts")
 
 
 def test_parse_signal_json_line_accepts_object_and_array() -> None:

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from post_office.config import SourcesConfig, load_config, validate_config
+from post_office.config import SignalConfig, SourcesConfig, load_config, validate_config
 from post_office.db import Database
 from post_office.filters import BanList
 from post_office.models import Message
@@ -18,7 +18,11 @@ from post_office.reports.daily import render_daily_report
 from post_office.runtime import Daemon, IngestionService, LivePrinterService, MessagePipeline
 from post_office.sources.base import SourceAdapter
 from post_office.sources.instagram import InstagramAdapter, normalize_instagram_item
-from post_office.sources.signal import SignalAdapter, normalize_signal_event
+from post_office.sources.signal import (
+    SignalAdapter,
+    normalize_signal_event,
+    signal_account_is_registered,
+)
 from post_office.sources.whatsapp import WhatsAppBridgeAdapter, normalize_baileys_event
 
 
@@ -32,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("daily-report")
     subparsers.add_parser("print-pending")
     subparsers.add_parser("daemon")
+    subparsers.add_parser("check-signal")
 
     ingest_fixture = subparsers.add_parser("ingest-fixture")
     ingest_fixture.add_argument("source", choices=["signal", "whatsapp", "instagram"])
@@ -77,8 +82,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"delivered={delivered} filtered={filtered} failed={failed}")
         return 1 if failed else 0
 
+    if args.command == "check-signal":
+        return _check_signal(config.sources.signal)
+
     if args.command == "daemon":
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        if config.sources.signal.enabled:
+            signal_status = _check_signal(config.sources.signal)
+            if signal_status != 0:
+                return signal_status
         sources = _enabled_sources(config.sources)
         if not sources:
             print("no sources are enabled")
@@ -132,6 +144,21 @@ def _enabled_sources(sources_config: SourcesConfig) -> tuple[SourceAdapter, ...]
     if sources_config.instagram.enabled:
         sources.append(InstagramAdapter(sources_config.instagram))
     return tuple(sources)
+
+
+def _check_signal(signal_config: SignalConfig) -> int:
+    if not signal_config.enabled:
+        print("Signal source is disabled")
+        return 0
+    account = signal_config.account
+    if signal_account_is_registered(signal_config):
+        print(f"Signal account is configured: {account}")
+        return 0
+    print(f"Signal account is not registered or linked locally: {account}")
+    print("Run `signal-cli link -n post-office` to link this machine as a secondary device.")
+    print("Then scan the printed `sgnl://linkdevice?...` URI from Signal on your phone.")
+    print("After linking, run `signal-cli listAccounts` and retry `post-office ... check-signal`.")
+    return 1
 
 
 if __name__ == "__main__":

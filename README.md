@@ -26,6 +26,7 @@ pip install -e '.[dev]'
 cp config.example.toml config.toml
 post-office --config config.toml init-db
 post-office --config config.toml validate-config
+post-office --config config.toml check-signal
 post-office --config config.toml daemon
 post-office --config config.toml print-pending
 pytest
@@ -43,10 +44,34 @@ The checked-in `.envrc` uses the flake dev shell, which provides Python, pytest,
 
 The Signal adapter calls `signal-cli -a ACCOUNT -o json receive --timeout SECONDS`; `-o json` is a global `signal-cli` option and must appear before the `receive` subcommand.
 
+## Signal setup
+
+`signal-cli` needs mutable local account state before Post Office can receive messages. For a Raspberry Pi service, prefer linking the Pi as a secondary device instead of registering the phone number as the primary device:
+
+```sh
+signal-cli link -n post-office
+```
+
+Scan the printed `sgnl://linkdevice?...` URI from Signal on your phone. Then verify that the account is visible locally:
+
+```sh
+signal-cli listAccounts
+nix run .# -- --config config.toml check-signal
+```
+
+Only after `check-signal` succeeds should you run:
+
+```sh
+nix run .# -- --config config.toml daemon
+```
+
+If you intentionally want this machine to be the primary Signal device, use `signal-cli -a PHONE register`, then `signal-cli -a PHONE verify CODE` instead. The linked-device flow is usually safer for this project.
+
 ## Current CLI commands
 
 - `init-db`: create or migrate the SQLite database.
 - `validate-config`: validate the TOML configuration.
+- `check-signal`: verify that the configured Signal account is locally registered or linked.
 - `ingest-fixture SOURCE PATH`: normalize and store one fixture event for `signal`, `whatsapp`, or `instagram`.
 - `daemon`: run enabled source adapters continuously and process incoming messages through the ingestion/live-printer pipeline.
 - `print-pending`: print stored messages that have not yet been delivered to the live printer target.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -53,6 +54,22 @@ def signal_receive_command(config: SignalConfig) -> tuple[str, ...]:
         "--timeout",
         str(config.receive_timeout_seconds),
     )
+
+
+def signal_list_accounts_command(config: SignalConfig) -> tuple[str, ...]:
+    return (config.signal_cli, "listAccounts")
+
+
+def signal_account_is_registered(config: SignalConfig) -> bool:
+    completed = subprocess.run(
+        signal_list_accounts_command(config),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return False
+    return config.account in completed.stdout.splitlines()
 
 
 def parse_signal_json_line(line: str) -> tuple[dict[str, Any], ...]:
