@@ -30,6 +30,20 @@ in
       };
     };
 
+    systemd.services.post-office = {
+      description = "Post Office message ingestion daemon";
+      after = [ "network-online.target" "post-office-init-db.service" ];
+      wants = [ "network-online.target" "post-office-init-db.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "simple";
+        StateDirectory = "post-office";
+        Restart = "on-failure";
+        RestartSec = "10s";
+        ExecStart = "${cfg.package}/bin/post-office --config ${cfg.configFile} daemon";
+      };
+    };
+
     systemd.services.post-office-daily-report = {
       description = "Send Post Office daily report";
       after = [ "network-online.target" "post-office-init-db.service" ];

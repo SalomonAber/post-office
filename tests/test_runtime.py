@@ -5,7 +5,12 @@ from post_office.db import Database
 from post_office.filters import BanList
 from post_office.models import BanRule, Message, Source
 from post_office.outputs.printer import ThermalPrinter
-from post_office.runtime import PRINTER_TARGET, IngestionService, LivePrinterService
+from post_office.runtime import (
+    PRINTER_TARGET,
+    IngestionService,
+    LivePrinterService,
+    MessagePipeline,
+)
 
 
 def message(*, sender_id: str = "sender", source_message_id: str = "source-id") -> Message:
@@ -58,3 +63,20 @@ def test_live_printer_marks_banned_message_filtered(tmp_path) -> None:
     assert len(results) == 1
     assert not results[0].delivered
     assert database.undelivered_messages(PRINTER_TARGET) == []
+
+
+def test_pipeline_ingests_and_prints_allowed_message(tmp_path) -> None:
+    database = Database(tmp_path / "post-office.sqlite3")
+    database.migrate()
+    banlist = BanList(())
+    printer = ThermalPrinter(PrinterConfig(enabled=False, usb_vendor_id=None, usb_product_id=None))
+    pipeline = MessagePipeline(
+        IngestionService(database, banlist),
+        LivePrinterService(database, banlist, printer),
+    )
+
+    result = pipeline.process(message())
+
+    assert result.ingest.status == "inserted"
+    assert len(result.prints) == 1
+    assert result.prints[0].delivered

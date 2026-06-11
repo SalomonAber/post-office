@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -13,9 +15,52 @@ class SignalAdapter:
         self.config = config
 
     async def messages(self) -> AsyncIterator[Message]:
-        msg = "Signal event loop is not implemented yet; use normalize_signal_event for fixtures"
-        raise NotImplementedError(msg)
-        yield
+        while True:
+            process = await asyncio.create_subprocess_exec(
+                *signal_receive_command(self.config),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            if process.stdout is None:
+                msg = "signal-cli stdout was not captured"
+                raise RuntimeError(msg)
+
+            async for raw_line in process.stdout:
+                line = raw_line.decode().strip()
+                if not line:
+                    continue
+                for event in parse_signal_json_line(line):
+                    message = normalize_signal_event(event, account=self.config.account)
+                    if message is not None:
+                        yield message
+
+            stderr = await _read_stderr(process)
+            exit_code = await process.wait()
+            if exit_code != 0:
+                msg = f"signal-cli receive failed with exit code {exit_code}: {stderr}"
+                raise RuntimeError(msg)
+            await asyncio.sleep(self.config.restart_delay_seconds)
+
+
+def signal_receive_command(config: SignalConfig) -> tuple[str, ...]:
+    return (
+        config.signal_cli,
+        "-a",
+        config.account,
+        "receive",
+        "--json",
+        "--timeout",
+        str(config.receive_timeout_seconds),
+    )
+
+
+def parse_signal_json_line(line: str) -> tuple[dict[str, Any], ...]:
+    payload = json.loads(line)
+    if isinstance(payload, list):
+        return tuple(item for item in payload if isinstance(item, dict))
+    if isinstance(payload, dict):
+        return (payload,)
+    return ()
 
 
 def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | None:
@@ -49,3 +94,9 @@ def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | 
         text=text,
         raw=event,
     )
+
+
+async def _read_stderr(process: asyncio.subprocess.Process) -> str:
+    if process.stderr is None:
+        return ""
+    return (await process.stderr.read()).decode(errors="replace").strip()

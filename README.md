@@ -26,6 +26,7 @@ pip install -e '.[dev]'
 cp config.example.toml config.toml
 post-office --config config.toml init-db
 post-office --config config.toml validate-config
+post-office --config config.toml daemon
 post-office --config config.toml print-pending
 pytest
 ```
@@ -35,6 +36,7 @@ pytest
 - `init-db`: create or migrate the SQLite database.
 - `validate-config`: validate the TOML configuration.
 - `ingest-fixture SOURCE PATH`: normalize and store one fixture event for `signal`, `whatsapp`, or `instagram`.
+- `daemon`: run enabled source adapters continuously and process incoming messages through the ingestion/live-printer pipeline.
 - `print-pending`: print stored messages that have not yet been delivered to the live printer target.
 - `daily-report`: render and optionally send the last 24 hours of allowed messages by SMTP.
 
@@ -53,8 +55,8 @@ For Nix/NixOS deployment, keep mutable state outside the Nix store, usually unde
 
 ## Next implementation work
 
-1. Implement the real `signal-cli` receive loop first; it has the least cross-runtime complexity.
-2. Add the long-running daemon command that supervises enabled source adapters and calls the ingestion/live-printer services.
-3. Add NixOS service wiring for the daemon, plus the existing daily-report timer.
-4. Replace fixture-only source tests with recorded integration fixtures from real `signal-cli`, Baileys, and `instagrapi` payloads.
+1. Test the `signal-cli` receive loop with a real linked Signal account.
+2. Add recorded integration fixtures from real `signal-cli`, Baileys, and `instagrapi` payloads.
+3. Harden the WhatsApp bridge supervision and QR pairing flow.
+4. Implement conservative Instagram polling with persisted cursors.
 5. Validate on Raspberry Pi with the real ESC/POS printer.

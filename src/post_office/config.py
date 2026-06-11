@@ -35,6 +35,8 @@ class SignalConfig:
     enabled: bool
     signal_cli: str = "signal-cli"
     account: str = ""
+    receive_timeout_seconds: int = 60
+    restart_delay_seconds: int = 5
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,8 @@ def _load_signal(data: dict[str, Any]) -> SignalConfig:
         enabled=bool(data.get("enabled", False)),
         signal_cli=str(data.get("signal_cli", "signal-cli")),
         account=str(data.get("account", "")),
+        receive_timeout_seconds=int(data.get("receive_timeout_seconds", 60)),
+        restart_delay_seconds=int(data.get("restart_delay_seconds", 5)),
     )
 
 

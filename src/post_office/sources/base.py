@@ -7,6 +7,6 @@ from post_office.models import Message
 
 
 class SourceAdapter(Protocol):
-    async def messages(self) -> AsyncIterator[Message]:
+    def messages(self) -> AsyncIterator[Message]:
         """Yield normalized messages from the source."""
         ...

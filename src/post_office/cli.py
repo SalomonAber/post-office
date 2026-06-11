@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from post_office.config import load_config, validate_config
+from post_office.config import SourcesConfig, load_config, validate_config
 from post_office.db import Database
 from post_office.filters import BanList
 from post_office.models import Message
 from post_office.outputs.email import EmailSender
 from post_office.outputs.printer import ThermalPrinter
 from post_office.reports.daily import render_daily_report
-from post_office.runtime import IngestionService, LivePrinterService
-from post_office.sources.instagram import normalize_instagram_item
-from post_office.sources.signal import normalize_signal_event
-from post_office.sources.whatsapp import normalize_baileys_event
+from post_office.runtime import Daemon, IngestionService, LivePrinterService, MessagePipeline
+from post_office.sources.base import SourceAdapter
+from post_office.sources.instagram import InstagramAdapter, normalize_instagram_item
+from post_office.sources.signal import SignalAdapter, normalize_signal_event
+from post_office.sources.whatsapp import WhatsAppBridgeAdapter, normalize_baileys_event
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,6 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("validate-config")
     subparsers.add_parser("daily-report")
     subparsers.add_parser("print-pending")
+    subparsers.add_parser("daemon")
 
     ingest_fixture = subparsers.add_parser("ingest-fixture")
     ingest_fixture.add_argument("source", choices=["signal", "whatsapp", "instagram"])
@@ -73,6 +77,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"delivered={delivered} filtered={filtered} failed={failed}")
         return 1 if failed else 0
 
+    if args.command == "daemon":
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        sources = _enabled_sources(config.sources)
+        if not sources:
+            print("no sources are enabled")
+            return 1
+        pipeline = MessagePipeline(
+            IngestionService(database, banlist),
+            LivePrinterService(database, banlist, ThermalPrinter(config.printer)),
+        )
+        try:
+            asyncio.run(Daemon(sources, pipeline).run())
+        except KeyboardInterrupt:
+            return 0
+        return 0
+
     if args.command == "daily-report":
         window_end = datetime.now(UTC)
         window_start = window_end - timedelta(days=1)
@@ -101,6 +121,17 @@ def _fixture_message(source: str, event: dict[str, Any]) -> Message | None:
             thread_id=str(event.get("thread_id", "fixture")),
         )
     return None
+
+
+def _enabled_sources(sources_config: SourcesConfig) -> tuple[SourceAdapter, ...]:
+    sources: list[SourceAdapter] = []
+    if sources_config.signal.enabled:
+        sources.append(SignalAdapter(sources_config.signal))
+    if sources_config.whatsapp.enabled:
+        sources.append(WhatsAppBridgeAdapter(sources_config.whatsapp))
+    if sources_config.instagram.enabled:
+        sources.append(InstagramAdapter(sources_config.instagram))
+    return tuple(sources)
 
 
 if __name__ == "__main__":
