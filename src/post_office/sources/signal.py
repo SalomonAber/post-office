@@ -42,6 +42,7 @@ class SignalAdapter:
             events = parse_signal_json_output(output)
             messages: list[Message] = []
             ignored: dict[str, int] = {}
+            ignored_examples: dict[str, str] = {}
             for event in events:
                 message = normalize_signal_event(event, account=self.config.account)
                 if message is not None:
@@ -49,11 +50,13 @@ class SignalAdapter:
                 else:
                     kind = signal_event_kind(event)
                     ignored[kind] = ignored.get(kind, 0) + 1
+                    ignored_examples.setdefault(kind, signal_event_summary(event))
             logger.info(
-                "signal-cli receive completed events=%s messages=%s ignored=%s",
+                "signal-cli receive completed events=%s messages=%s ignored=%s examples=%s",
                 len(events),
                 len(messages),
                 ignored,
+                ignored_examples,
             )
             for message in messages:
                 yield message
@@ -178,3 +181,24 @@ def signal_event_kind(event: dict[str, Any]) -> str:
                         return f"syncMessage.{sync_key}"
             return key
     return "unknown"
+
+
+def signal_event_summary(event: dict[str, Any]) -> str:
+    envelope = event.get("envelope")
+    parts = [f"top={_sorted_keys(event)}"]
+    if isinstance(envelope, dict):
+        parts.append(f"envelope={_sorted_keys(envelope)}")
+        sync_message = envelope.get("syncMessage")
+        data_message = envelope.get("dataMessage")
+    else:
+        sync_message = event.get("syncMessage")
+        data_message = event.get("dataMessage")
+    if isinstance(sync_message, dict):
+        parts.append(f"syncMessage={_sorted_keys(sync_message)}")
+    if isinstance(data_message, dict):
+        parts.append(f"dataMessage={_sorted_keys(data_message)}")
+    return " ".join(parts)
+
+
+def _sorted_keys(value: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(sorted(str(key) for key in value))

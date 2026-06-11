@@ -7,6 +7,7 @@ from post_office.sources.signal import (
     parse_signal_json_line,
     parse_signal_json_output,
     signal_event_kind,
+    signal_event_summary,
     signal_list_accounts_command,
     signal_receive_command,
 )
@@ -139,6 +140,22 @@ def test_signal_event_kind_describes_ignored_events() -> None:
         signal_event_kind({"envelope": {"syncMessage": {"readMessages": []}}})
         == "syncMessage.readMessages"
     )
+
+
+def test_signal_event_summary_logs_keys_not_values() -> None:
+    summary = signal_event_summary(
+        {
+            "account": "+49123",
+            "envelope": {
+                "sourceNumber": "+49456",
+                "unknownMessage": {"secret": "message text"},
+            },
+        }
+    )
+
+    assert summary == "top=('account', 'envelope') envelope=('sourceNumber', 'unknownMessage')"
+    assert "+49123" not in summary
+    assert "message text" not in summary
 
 
 def test_normalize_instagram_item() -> None:
