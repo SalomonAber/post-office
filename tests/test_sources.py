@@ -2,6 +2,7 @@ from post_office.config import SignalConfig
 from post_office.models import Source
 from post_office.sources.instagram import normalize_instagram_item
 from post_office.sources.signal import (
+    _single_line,
     normalize_signal_event,
     parse_signal_accounts,
     parse_signal_json_line,
@@ -135,6 +136,7 @@ def test_normalize_signal_sync_sent_message() -> None:
 
 
 def test_signal_event_kind_describes_ignored_events() -> None:
+    assert signal_event_kind({"envelope": {}, "exception": {}}) == "exception"
     assert signal_event_kind({"envelope": {"receiptMessage": {}}}) == "receiptMessage"
     assert (
         signal_event_kind({"envelope": {"syncMessage": {"readMessages": []}}})
@@ -156,6 +158,11 @@ def test_signal_event_summary_logs_keys_not_values() -> None:
     assert summary == "top=('account', 'envelope') envelope=('sourceNumber', 'unknownMessage')"
     assert "+49123" not in summary
     assert "message text" not in summary
+
+
+def test_single_line_collapses_and_truncates_stderr() -> None:
+    assert _single_line("line 1\nline 2") == "line 1 line 2"
+    assert _single_line("x" * 10, limit=5) == "xxxxx…"
 
 
 def test_normalize_instagram_item() -> None:

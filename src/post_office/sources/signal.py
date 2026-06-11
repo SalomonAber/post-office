@@ -35,8 +35,14 @@ class SignalAdapter:
             stderr = stderr_bytes.decode(errors="replace").strip()
             exit_code = process.returncode
             if exit_code != 0:
-                msg = f"signal-cli receive failed with exit code {exit_code}: {stderr}"
-                raise RuntimeError(msg)
+                logger.warning(
+                    "signal-cli receive failed exit_code=%s error=%s; retrying in %ss",
+                    exit_code,
+                    _single_line(stderr),
+                    self.config.restart_delay_seconds,
+                )
+                await asyncio.sleep(self.config.restart_delay_seconds)
+                continue
 
             output = stdout.decode(errors="replace")
             events = parse_signal_json_output(output)
@@ -164,6 +170,8 @@ def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | 
 
 
 def signal_event_kind(event: dict[str, Any]) -> str:
+    if "exception" in event:
+        return "exception"
     envelope = event.get("envelope", event)
     for key in (
         "dataMessage",
@@ -202,3 +210,10 @@ def signal_event_summary(event: dict[str, Any]) -> str:
 
 def _sorted_keys(value: dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(str(key) for key in value))
+
+
+def _single_line(value: str, *, limit: int = 500) -> str:
+    collapsed = " ".join(value.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[:limit]}…"
