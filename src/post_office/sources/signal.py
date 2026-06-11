@@ -69,7 +69,16 @@ def signal_account_is_registered(config: SignalConfig) -> bool:
     )
     if completed.returncode != 0:
         return False
-    return config.account in completed.stdout.splitlines()
+    return config.account in parse_signal_accounts(completed.stdout)
+
+
+def parse_signal_accounts(output: str) -> tuple[str, ...]:
+    accounts: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Number:"):
+            accounts.append(stripped.removeprefix("Number:").strip())
+    return tuple(accounts)
 
 
 def parse_signal_json_line(line: str) -> tuple[dict[str, Any], ...]:
