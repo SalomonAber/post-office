@@ -5,6 +5,7 @@ from post_office.sources.signal import (
     normalize_signal_event,
     parse_signal_accounts,
     parse_signal_json_line,
+    parse_signal_json_output,
     signal_list_accounts_command,
     signal_receive_command,
 )
@@ -53,6 +54,17 @@ def test_parse_signal_json_line_accepts_object_and_array() -> None:
         {"envelope": {}},
         {"receipt": {}},
     )
+
+
+def test_parse_signal_json_output_accepts_empty_and_pretty_json() -> None:
+    assert parse_signal_json_output("") == ()
+    assert parse_signal_json_output(
+        """
+        [
+          {"envelope": {"sourceNumber": "+49123"}}
+        ]
+        """
+    ) == ({"envelope": {"sourceNumber": "+49123"}},)
 
 
 def test_normalize_whatsapp_event() -> None:

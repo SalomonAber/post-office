@@ -65,6 +65,12 @@ Only after `check-signal` succeeds should you run:
 nix run .# -- --config config.toml daemon
 ```
 
+Linked devices only receive messages that arrive after the link is established. If the daemon logs `signal-cli receive completed events=0 messages=0`, send a fresh message from another Signal account while the daemon is running. You can also test the raw receive path directly:
+
+```sh
+signal-cli -a PHONE -o json receive --timeout 10
+```
+
 If you intentionally want this machine to be the primary Signal device, use `signal-cli -a PHONE register`, then `signal-cli -a PHONE verify CODE` instead. The linked-device flow is usually safer for this project.
 
 ## Current CLI commands

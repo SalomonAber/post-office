@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import subprocess
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -10,6 +11,8 @@ from typing import Any
 from post_office.config import SignalConfig
 from post_office.models import Message, Source
 
+logger = logging.getLogger(__name__)
+
 
 class SignalAdapter:
     def __init__(self, config: SignalConfig) -> None:
@@ -17,29 +20,38 @@ class SignalAdapter:
 
     async def messages(self) -> AsyncIterator[Message]:
         while True:
+            command = signal_receive_command(self.config)
+            logger.info("starting signal-cli receive: %s", " ".join(command))
             process = await asyncio.create_subprocess_exec(
-                *signal_receive_command(self.config),
+                *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            if process.stdout is None:
-                msg = "signal-cli stdout was not captured"
+            if process.stdout is None or process.stderr is None:
+                msg = "signal-cli stdout/stderr was not captured"
                 raise RuntimeError(msg)
 
-            async for raw_line in process.stdout:
-                line = raw_line.decode().strip()
-                if not line:
-                    continue
-                for event in parse_signal_json_line(line):
-                    message = normalize_signal_event(event, account=self.config.account)
-                    if message is not None:
-                        yield message
-
-            stderr = await _read_stderr(process)
-            exit_code = await process.wait()
+            stdout, stderr_bytes = await process.communicate()
+            stderr = stderr_bytes.decode(errors="replace").strip()
+            exit_code = process.returncode
             if exit_code != 0:
                 msg = f"signal-cli receive failed with exit code {exit_code}: {stderr}"
                 raise RuntimeError(msg)
+
+            output = stdout.decode(errors="replace")
+            events = parse_signal_json_output(output)
+            messages: list[Message] = []
+            for event in events:
+                message = normalize_signal_event(event, account=self.config.account)
+                if message is not None:
+                    messages.append(message)
+            logger.info(
+                "signal-cli receive completed events=%s messages=%s",
+                len(events),
+                len(messages),
+            )
+            for message in messages:
+                yield message
             await asyncio.sleep(self.config.restart_delay_seconds)
 
 
@@ -82,7 +94,17 @@ def parse_signal_accounts(output: str) -> tuple[str, ...]:
 
 
 def parse_signal_json_line(line: str) -> tuple[dict[str, Any], ...]:
-    payload = json.loads(line)
+    return parse_signal_json_output(line)
+
+
+def parse_signal_json_output(output: str) -> tuple[dict[str, Any], ...]:
+    stripped = output.strip()
+    if not stripped:
+        return ()
+    return _parse_signal_payload(json.loads(stripped))
+
+
+def _parse_signal_payload(payload: object) -> tuple[dict[str, Any], ...]:
     if isinstance(payload, list):
         return tuple(item for item in payload if isinstance(item, dict))
     if isinstance(payload, dict):
@@ -121,9 +143,3 @@ def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | 
         text=text,
         raw=event,
     )
-
-
-async def _read_stderr(process: asyncio.subprocess.Process) -> str:
-    if process.stderr is None:
-        return ""
-    return (await process.stderr.read()).decode(errors="replace").strip()
