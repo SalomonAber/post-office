@@ -41,14 +41,19 @@ class SignalAdapter:
             output = stdout.decode(errors="replace")
             events = parse_signal_json_output(output)
             messages: list[Message] = []
+            ignored: dict[str, int] = {}
             for event in events:
                 message = normalize_signal_event(event, account=self.config.account)
                 if message is not None:
                     messages.append(message)
+                else:
+                    kind = signal_event_kind(event)
+                    ignored[kind] = ignored.get(kind, 0) + 1
             logger.info(
-                "signal-cli receive completed events=%s messages=%s",
+                "signal-cli receive completed events=%s messages=%s ignored=%s",
                 len(events),
                 len(messages),
+                ignored,
             )
             for message in messages:
                 yield message
@@ -124,12 +129,14 @@ def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | 
     envelope = event.get("envelope", event)
     sync_message = envelope.get("syncMessage", {})
     sent_message = sync_message.get("sentMessage", {})
-    data_message = envelope.get("dataMessage") or sent_message.get("message")
-    if not data_message:
+    data_message = envelope.get("dataMessage") or sent_message
+    if not isinstance(data_message, dict) or not data_message:
         return None
 
     source = str(envelope.get("source") or envelope.get("sourceNumber") or account)
-    chat_id = str(envelope.get("groupInfo", {}).get("groupId") or source)
+    group_info = data_message.get("groupInfo") or envelope.get("groupInfo") or {}
+    destination = sent_message.get("destination") or sent_message.get("destinationNumber")
+    chat_id = str(group_info.get("groupId") or destination or source)
     timestamp_ms = int(data_message.get("timestamp") or envelope.get("timestamp") or 0)
     text = str(data_message.get("message") or "")
     source_message_id = str(
@@ -151,3 +158,23 @@ def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | 
         text=text,
         raw=event,
     )
+
+
+def signal_event_kind(event: dict[str, Any]) -> str:
+    envelope = event.get("envelope", event)
+    for key in (
+        "dataMessage",
+        "syncMessage",
+        "receiptMessage",
+        "typingMessage",
+        "callMessage",
+        "decryptionErrorMessage",
+    ):
+        if key in envelope:
+            if key == "syncMessage" and isinstance(envelope[key], dict):
+                sync_message = envelope[key]
+                for sync_key in ("sentMessage", "readMessages", "viewOnceOpen"):
+                    if sync_key in sync_message:
+                        return f"syncMessage.{sync_key}"
+            return key
+    return "unknown"

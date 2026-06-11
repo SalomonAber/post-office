@@ -6,6 +6,7 @@ from post_office.sources.signal import (
     parse_signal_accounts,
     parse_signal_json_line,
     parse_signal_json_output,
+    signal_event_kind,
     signal_list_accounts_command,
     signal_receive_command,
 )
@@ -106,6 +107,38 @@ def test_normalize_signal_event() -> None:
     assert message is not None
     assert message.source == Source.SIGNAL
     assert message.text == "hello signal"
+
+
+def test_normalize_signal_sync_sent_message() -> None:
+    message = normalize_signal_event(
+        {
+            "envelope": {
+                "sourceNumber": "+49123",
+                "timestamp": 1781164800000,
+                "syncMessage": {
+                    "sentMessage": {
+                        "destination": "+49456",
+                        "timestamp": 1781164800000,
+                        "message": "hello from sync",
+                    }
+                },
+            }
+        },
+        account="account",
+    )
+
+    assert message is not None
+    assert message.source == Source.SIGNAL
+    assert message.chat_id == "+49456"
+    assert message.text == "hello from sync"
+
+
+def test_signal_event_kind_describes_ignored_events() -> None:
+    assert signal_event_kind({"envelope": {"receiptMessage": {}}}) == "receiptMessage"
+    assert (
+        signal_event_kind({"envelope": {"syncMessage": {"readMessages": []}}})
+        == "syncMessage.readMessages"
+    )
 
 
 def test_normalize_instagram_item() -> None:
