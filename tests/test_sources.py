@@ -10,6 +10,8 @@ from post_office.sources.signal import (
     signal_event_summary,
     signal_list_accounts_command,
     signal_receive_command,
+    signal_retry_delay,
+    summarize_signal_cli_error,
 )
 from post_office.sources.whatsapp import normalize_baileys_event
 
@@ -39,6 +41,34 @@ def test_signal_list_accounts_command() -> None:
     command = signal_list_accounts_command(SignalConfig(enabled=True, signal_cli="signal-cli"))
 
     assert command == ("signal-cli", "listAccounts")
+
+
+def test_signal_retry_delay_exponentially_backs_off() -> None:
+    config = SignalConfig(
+        enabled=True,
+        restart_delay_seconds=5,
+        max_restart_delay_seconds=20,
+    )
+
+    assert signal_retry_delay(config, 1) == 5
+    assert signal_retry_delay(config, 2) == 10
+    assert signal_retry_delay(config, 3) == 20
+    assert signal_retry_delay(config, 4) == 20
+
+
+def test_summarize_signal_cli_error_compacts_retry_npe() -> None:
+    stderr = "\n".join(
+        [
+            'java.lang.NullPointerException: Cannot invoke getSender() because "content" is null',
+            "    at org.asamk.signal.manager.helper.ReceiveHelper.retryFailedReceivedMessage",
+            "    at org.asamk.signal.Main.main(Main.java:57)",
+        ]
+    )
+
+    assert summarize_signal_cli_error(stderr) == (
+        'java.lang.NullPointerException: Cannot invoke getSender() because "content" is null '
+        "while retrying cached failed Signal messages"
+    )
 
 
 def test_parse_signal_accounts_reads_number_lines() -> None:

@@ -71,6 +71,8 @@ Linked devices only receive messages that arrive after the link is established. 
 signal-cli -a PHONE -o json receive --timeout 10
 ```
 
+If `signal-cli receive` repeatedly fails with a Java `NullPointerException` while retrying failed received messages, Post Office treats it as a transient upstream `signal-cli` failure and retries with bounded exponential backoff. This usually indicates a bad cached retry envelope in `signal-cli` state; upgrading `signal-cli` or relinking the device may be required if it persists.
+
 If you intentionally want this machine to be the primary Signal device, use `signal-cli -a PHONE register`, then `signal-cli -a PHONE verify CODE` instead. The linked-device flow is usually safer for this project.
 
 ## Current CLI commands

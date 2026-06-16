@@ -19,6 +19,7 @@ class SignalAdapter:
         self.config = config
 
     async def messages(self) -> AsyncIterator[Message]:
+        consecutive_failures = 0
         while True:
             command = signal_receive_command(self.config)
             logger.info("starting signal-cli receive: %s", " ".join(command))
@@ -35,14 +36,19 @@ class SignalAdapter:
             stderr = stderr_bytes.decode(errors="replace").strip()
             exit_code = process.returncode
             if exit_code != 0:
+                consecutive_failures += 1
+                retry_after = signal_retry_delay(self.config, consecutive_failures)
                 logger.warning(
-                    "signal-cli receive failed with exit code %s; retrying after %ss: %s",
+                    "signal-cli receive failed exit_code=%s attempt=%s retry_after=%ss error=%s",
                     exit_code,
-                    self.config.restart_delay_seconds,
-                    stderr,
+                    consecutive_failures,
+                    retry_after,
+                    summarize_signal_cli_error(stderr),
                 )
-                await asyncio.sleep(self.config.restart_delay_seconds)
+                await asyncio.sleep(retry_after)
                 continue
+
+            consecutive_failures = 0
 
             output = stdout.decode(errors="replace")
             events = parse_signal_json_output(output)
@@ -84,6 +90,26 @@ def signal_receive_command(config: SignalConfig) -> tuple[str, ...]:
 
 def signal_list_accounts_command(config: SignalConfig) -> tuple[str, ...]:
     return (config.signal_cli, "listAccounts")
+
+
+def signal_retry_delay(config: SignalConfig, consecutive_failures: int) -> int:
+    base_delay = max(config.restart_delay_seconds, 1)
+    max_delay = max(config.max_restart_delay_seconds, base_delay)
+    multiplier = 2 ** max(consecutive_failures - 1, 0)
+    return min(base_delay * multiplier, max_delay)
+
+
+def summarize_signal_cli_error(stderr: str) -> str:
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    if not lines:
+        return "no stderr"
+    first_line = lines[0]
+    if first_line.startswith("java.lang.NullPointerException"):
+        for line in lines[1:]:
+            if "ReceiveHelper.retryFailedReceivedMessage" in line:
+                return f"{first_line} while retrying cached failed Signal messages"
+        return first_line
+    return first_line
 
 
 def signal_account_is_registered(config: SignalConfig) -> bool:

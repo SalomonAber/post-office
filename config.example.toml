@@ -35,6 +35,7 @@ signal_cli = "signal-cli"
 account = "+49123456789"
 receive_timeout_seconds = 60
 restart_delay_seconds = 5
+max_restart_delay_seconds = 300
 
 [sources.whatsapp]
 enabled = false
