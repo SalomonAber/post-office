@@ -2,7 +2,6 @@ from post_office.config import SignalConfig
 from post_office.models import Source
 from post_office.sources.instagram import normalize_instagram_item
 from post_office.sources.signal import (
-    _single_line,
     normalize_signal_event,
     parse_signal_accounts,
     parse_signal_json_line,
@@ -97,6 +96,7 @@ def test_normalize_whatsapp_event() -> None:
 def test_normalize_signal_event() -> None:
     message = normalize_signal_event(
         {
+            "account": "account",
             "envelope": {
                 "sourceNumber": "+49123",
                 "timestamp": 1781164800000,
@@ -111,9 +111,34 @@ def test_normalize_signal_event() -> None:
     assert message.text == "hello signal"
 
 
+def test_normalize_signal_edit_message() -> None:
+    message = normalize_signal_event(
+        {
+            "account": "account",
+            "envelope": {
+                "sourceNumber": "+49123",
+                "timestamp": 1781164800000,
+                "editMessage": {
+                    "targetSentTimestamp": 1781164799000,
+                    "dataMessage": {
+                        "message": "edited signal",
+                        "timestamp": 1781164800000,
+                    },
+                },
+            },
+        },
+        account="account",
+    )
+
+    assert message is not None
+    assert message.source == Source.SIGNAL
+    assert message.text == "edited signal"
+
+
 def test_normalize_signal_sync_sent_message() -> None:
     message = normalize_signal_event(
         {
+            "account": "account",
             "envelope": {
                 "sourceNumber": "+49123",
                 "timestamp": 1781164800000,
@@ -135,8 +160,38 @@ def test_normalize_signal_sync_sent_message() -> None:
     assert message.text == "hello from sync"
 
 
+def test_normalize_signal_sync_sent_message_with_nested_data_message() -> None:
+    message = normalize_signal_event(
+        {
+            "account": "account",
+            "envelope": {
+                "sourceNumber": "+49123",
+                "timestamp": 1781164800000,
+                "syncMessage": {
+                    "sentMessage": {
+                        "destinationNumber": "+49456",
+                        "dataMessage": {
+                            "timestamp": 1781164800000,
+                            "message": "hello nested sync",
+                        },
+                    }
+                },
+            },
+        },
+        account="account",
+    )
+
+    assert message is not None
+    assert message.source == Source.SIGNAL
+    assert message.chat_id == "+49456"
+    assert message.text == "hello nested sync"
+
+
 def test_signal_event_kind_describes_ignored_events() -> None:
-    assert signal_event_kind({"envelope": {}, "exception": {}}) == "exception"
+    assert signal_event_kind({"exception": {"type": "InvalidMessageException"}}) == (
+        "exception.InvalidMessageException"
+    )
+    assert signal_event_kind({"envelope": {"editMessage": {}}}) == "editMessage"
     assert signal_event_kind({"envelope": {"receiptMessage": {}}}) == "receiptMessage"
     assert (
         signal_event_kind({"envelope": {"syncMessage": {"readMessages": []}}})
@@ -158,11 +213,6 @@ def test_signal_event_summary_logs_keys_not_values() -> None:
     assert summary == "top=('account', 'envelope') envelope=('sourceNumber', 'unknownMessage')"
     assert "+49123" not in summary
     assert "message text" not in summary
-
-
-def test_single_line_collapses_and_truncates_stderr() -> None:
-    assert _single_line("line 1\nline 2") == "line 1 line 2"
-    assert _single_line("x" * 10, limit=5) == "xxxxx…"
 
 
 def test_normalize_instagram_item() -> None:

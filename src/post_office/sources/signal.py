@@ -36,10 +36,10 @@ class SignalAdapter:
             exit_code = process.returncode
             if exit_code != 0:
                 logger.warning(
-                    "signal-cli receive failed exit_code=%s error=%s; retrying in %ss",
+                    "signal-cli receive failed with exit code %s; retrying after %ss: %s",
                     exit_code,
-                    _single_line(stderr),
                     self.config.restart_delay_seconds,
+                    stderr,
                 )
                 await asyncio.sleep(self.config.restart_delay_seconds)
                 continue
@@ -136,15 +136,16 @@ def _parse_signal_payload(payload: object) -> tuple[dict[str, Any], ...]:
 
 def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | None:
     envelope = event.get("envelope", event)
-    sync_message = envelope.get("syncMessage", {})
-    sent_message = sync_message.get("sentMessage", {})
-    data_message = envelope.get("dataMessage") or sent_message
+    if not isinstance(envelope, dict):
+        return None
+
+    data_message = _extract_data_message(envelope)
     if not isinstance(data_message, dict) or not data_message:
         return None
 
     source = str(envelope.get("source") or envelope.get("sourceNumber") or account)
     group_info = data_message.get("groupInfo") or envelope.get("groupInfo") or {}
-    destination = sent_message.get("destination") or sent_message.get("destinationNumber")
+    destination = data_message.get("destination") or data_message.get("destinationNumber")
     chat_id = str(group_info.get("groupId") or destination or source)
     timestamp_ms = int(data_message.get("timestamp") or envelope.get("timestamp") or 0)
     text = str(data_message.get("message") or "")
@@ -169,13 +170,45 @@ def normalize_signal_event(event: dict[str, Any], *, account: str) -> Message | 
     )
 
 
+def _extract_data_message(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    data_message = envelope.get("dataMessage")
+    if isinstance(data_message, dict):
+        return data_message
+
+    edit_message = envelope.get("editMessage")
+    if isinstance(edit_message, dict) and isinstance(edit_message.get("dataMessage"), dict):
+        return edit_message["dataMessage"]
+
+    sync_message = envelope.get("syncMessage")
+    if isinstance(sync_message, dict):
+        sent_message = sync_message.get("sentMessage")
+        if isinstance(sent_message, dict):
+            nested_data_message = sent_message.get("dataMessage")
+            if isinstance(nested_data_message, dict):
+                return {
+                    **nested_data_message,
+                    "destination": sent_message.get("destination"),
+                    "destinationNumber": sent_message.get("destinationNumber"),
+                }
+            return sent_message
+    return None
+
+
 def signal_event_kind(event: dict[str, Any]) -> str:
     if "exception" in event:
+        exception = event.get("exception")
+        if isinstance(exception, dict) and isinstance(exception.get("type"), str):
+            return f"exception.{exception['type']}"
         return "exception"
+
     envelope = event.get("envelope", event)
+    if not isinstance(envelope, dict):
+        return "unknown"
     for key in (
         "dataMessage",
+        "editMessage",
         "syncMessage",
+        "storyMessage",
         "receiptMessage",
         "typingMessage",
         "callMessage",
@@ -184,7 +217,13 @@ def signal_event_kind(event: dict[str, Any]) -> str:
         if key in envelope:
             if key == "syncMessage" and isinstance(envelope[key], dict):
                 sync_message = envelope[key]
-                for sync_key in ("sentMessage", "readMessages", "viewOnceOpen"):
+                for sync_key in (
+                    "sentMessage",
+                    "sentStoryMessage",
+                    "readMessages",
+                    "viewOnceOpen",
+                    "type",
+                ):
                     if sync_key in sync_message:
                         return f"syncMessage.{sync_key}"
             return key
@@ -210,10 +249,3 @@ def signal_event_summary(event: dict[str, Any]) -> str:
 
 def _sorted_keys(value: dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(str(key) for key in value))
-
-
-def _single_line(value: str, *, limit: int = 500) -> str:
-    collapsed = " ".join(value.split())
-    if len(collapsed) <= limit:
-        return collapsed
-    return f"{collapsed[:limit]}…"
