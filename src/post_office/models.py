@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from hashlib import sha256
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -11,13 +12,13 @@ from uuid import uuid4
 class Source(StrEnum):
     SIGNAL = "signal"
     WHATSAPP = "whatsapp"
-    INSTAGRAM = "instagram"
 
 
 @dataclass(frozen=True)
 class Attachment:
     content_type: str | None = None
     filename: str | None = None
+    local_path: Path | None = None
     size_bytes: int | None = None
     source_id: str | None = None
 
@@ -25,13 +26,13 @@ class Attachment:
 @dataclass(frozen=True)
 class Message:
     source: Source
-    source_account_id: str
     chat_id: str
     sender_id: str
     timestamp: datetime
     text: str
     source_message_id: str | None = None
     chat_name: str | None = None
+    is_group_chat: bool = False
     sender_name: str | None = None
     attachments: tuple[Attachment, ...] = ()
     raw: dict[str, Any] = field(default_factory=dict)
@@ -47,11 +48,10 @@ class Message:
     @property
     def dedupe_key(self) -> str:
         if self.source_message_id:
-            return f"{self.source}:{self.source_account_id}:{self.chat_id}:{self.source_message_id}"
+            return f"{self.source}:{self.chat_id}:{self.source_message_id}"
         material = "|".join(
             [
                 self.source,
-                self.source_account_id,
                 self.chat_id,
                 self.sender_id,
                 self.timestamp.isoformat(),
@@ -78,12 +78,3 @@ class BanRule:
             return self.value == message.chat_id
         msg = f"unsupported ban rule kind: {self.kind}"
         raise ValueError(msg)
-
-
-@dataclass(frozen=True)
-class Delivery:
-    message_id: str
-    target: str
-    delivered_at: datetime
-    status: str
-    error: str | None = None

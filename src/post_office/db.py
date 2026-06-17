@@ -8,7 +8,24 @@ from typing import Any
 
 from post_office.models import Attachment, Message, Source
 
-SCHEMA_VERSION = 1
+MESSAGES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    chat_name TEXT,
+    is_group_chat INTEGER NOT NULL DEFAULT 0,
+    sender_id TEXT NOT NULL,
+    sender_name TEXT,
+    source_message_id TEXT,
+    timestamp TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    text TEXT NOT NULL,
+    attachments_json TEXT NOT NULL,
+    raw_json TEXT NOT NULL
+)
+"""
 
 
 class Database:
@@ -25,27 +42,8 @@ class Database:
     def migrate(self) -> None:
         with self.connect() as connection:
             connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS schema_meta (
-                    version INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    dedupe_key TEXT NOT NULL UNIQUE,
-                    source TEXT NOT NULL,
-                    source_account_id TEXT NOT NULL,
-                    chat_id TEXT NOT NULL,
-                    chat_name TEXT,
-                    sender_id TEXT NOT NULL,
-                    sender_name TEXT,
-                    source_message_id TEXT,
-                    timestamp TEXT NOT NULL,
-                    received_at TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    attachments_json TEXT NOT NULL,
-                    raw_json TEXT NOT NULL
-                );
+                f"""
+                {MESSAGES_TABLE_SQL};
 
                 CREATE TABLE IF NOT EXISTS delivery_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,29 +55,15 @@ class Database:
                     UNIQUE(message_id, target)
                 );
 
-                CREATE TABLE IF NOT EXISTS report_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    report_type TEXT NOT NULL,
-                    window_start TEXT NOT NULL,
-                    window_end TEXT NOT NULL,
-                    target TEXT NOT NULL,
-                    delivered_at TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    error TEXT,
-                    UNIQUE(report_type, window_start, window_end, target)
-                );
                 """
             )
-            existing = connection.execute("SELECT COUNT(*) FROM schema_meta").fetchone()[0]
-            if existing == 0:
-                connection.execute("INSERT INTO schema_meta(version) VALUES (?)", (SCHEMA_VERSION,))
 
     def insert_message(self, message: Message) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO messages (
-                    id, dedupe_key, source, source_account_id, chat_id, chat_name,
+                    id, dedupe_key, source, chat_id, chat_name, is_group_chat,
                     sender_id, sender_name, source_message_id, timestamp, received_at,
                     text, attachments_json, raw_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -140,14 +124,20 @@ class Database:
 
 
 def _message_to_row(message: Message) -> tuple[Any, ...]:
-    attachments = [attachment.__dict__ for attachment in message.attachments]
+    attachments = [
+        {
+            **attachment.__dict__,
+            "local_path": str(attachment.local_path) if attachment.local_path else None,
+        }
+        for attachment in message.attachments
+    ]
     return (
         message.id,
         message.dedupe_key,
         message.source.value,
-        message.source_account_id,
         message.chat_id,
         message.chat_name,
+        int(message.is_group_chat),
         message.sender_id,
         message.sender_name,
         message.source_message_id,
@@ -160,13 +150,21 @@ def _message_to_row(message: Message) -> tuple[Any, ...]:
 
 
 def _row_to_message(row: sqlite3.Row) -> Message:
-    attachments = tuple(Attachment(**item) for item in json.loads(row["attachments_json"]))
+    attachments = tuple(
+        Attachment(
+            **{
+                **item,
+                "local_path": Path(item["local_path"]) if item.get("local_path") else None,
+            }
+        )
+        for item in json.loads(row["attachments_json"])
+    )
     return Message(
         id=row["id"],
         source=Source(row["source"]),
-        source_account_id=row["source_account_id"],
         chat_id=row["chat_id"],
         chat_name=row["chat_name"],
+        is_group_chat=bool(row["is_group_chat"]),
         sender_id=row["sender_id"],
         sender_name=row["sender_name"],
         source_message_id=row["source_message_id"],

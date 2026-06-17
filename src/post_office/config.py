@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,55 +9,36 @@ from post_office.models import BanRule, Source
 
 
 @dataclass(frozen=True)
-class EmailConfig:
-    enabled: bool
-    smtp_host: str
-    smtp_port: int
-    smtp_starttls: bool
-    smtp_username: str
-    smtp_password: str | None
-    from_address: str
-    to_addresses: tuple[str, ...]
-    subject_prefix: str = "Post Office"
-
-
-@dataclass(frozen=True)
 class PrinterConfig:
-    enabled: bool
-    usb_vendor_id: int | None
-    usb_product_id: int | None
-    dry_run: bool = True
+    enabled: bool = False
+    device_path: Path = Path("/dev/rfcomm0")
+    width_chars: int = 42
 
 
 @dataclass(frozen=True)
 class SignalConfig:
-    enabled: bool
-    signal_cli: str = "signal-cli"
-    account: str = ""
-    receive_timeout_seconds: int = 60
+    enabled: bool = False
+    data_dir: Path = Path("./state/signal-cli")
+    media_dir: Path = Path("./state/media/signal")
+    include_own_messages: bool = False
     restart_delay_seconds: int = 5
     max_restart_delay_seconds: int = 300
 
 
 @dataclass(frozen=True)
 class WhatsAppConfig:
-    enabled: bool
-    bridge_command: tuple[str, ...] = ("node", "whatsapp-bridge/index.js")
-
-
-@dataclass(frozen=True)
-class InstagramConfig:
-    enabled: bool
-    username: str = ""
-    password: str | None = None
-    poll_interval_seconds: int = 300
+    enabled: bool = False
+    auth_dir: Path = Path("./state/whatsapp-auth")
+    media_dir: Path = Path("./state/media/whatsapp")
+    include_own_messages: bool = False
+    restart_delay_seconds: int = 5
+    max_restart_delay_seconds: int = 300
 
 
 @dataclass(frozen=True)
 class SourcesConfig:
-    signal: SignalConfig = field(default_factory=lambda: SignalConfig(enabled=False))
-    whatsapp: WhatsAppConfig = field(default_factory=lambda: WhatsAppConfig(enabled=False))
-    instagram: InstagramConfig = field(default_factory=lambda: InstagramConfig(enabled=False))
+    signal: SignalConfig = field(default_factory=SignalConfig)
+    whatsapp: WhatsAppConfig = field(default_factory=WhatsAppConfig)
 
 
 @dataclass(frozen=True)
@@ -67,7 +47,6 @@ class AppConfig:
     database_path: Path
     state_dir: Path
     ban_rules: tuple[BanRule, ...]
-    email: EmailConfig
     printer: PrinterConfig
     sources: SourcesConfig
 
@@ -76,21 +55,19 @@ def load_config(path: Path) -> AppConfig:
     data = tomllib.loads(path.read_text())
     app = data.get("app", {})
     banlist = data.get("banlist", {})
-    email = data.get("email", {})
     printer = data.get("printer", {})
     sources = data.get("sources", {})
 
+    state_dir = Path(str(app.get("state_dir", "./state"))).expanduser()
     return AppConfig(
         timezone=str(app.get("timezone", "UTC")),
-        database_path=Path(str(app.get("database_path", "./post-office.sqlite3"))).expanduser(),
-        state_dir=Path(str(app.get("state_dir", "./state"))).expanduser(),
+        database_path=state_dir / "post-office.sqlite3",
+        state_dir=state_dir,
         ban_rules=_load_ban_rules(banlist),
-        email=_load_email(email),
         printer=_load_printer(printer),
         sources=SourcesConfig(
-            signal=_load_signal(sources.get("signal", {})),
-            whatsapp=_load_whatsapp(sources.get("whatsapp", {})),
-            instagram=_load_instagram(sources.get("instagram", {})),
+            signal=_load_signal(sources.get("signal", {}), state_dir=state_dir),
+            whatsapp=_load_whatsapp(sources.get("whatsapp", {}), state_dir=state_dir),
         ),
     )
 
@@ -114,82 +91,38 @@ def _ban_rule(item: dict[str, Any], kind: str) -> BanRule:
     )
 
 
-def _load_email(data: dict[str, Any]) -> EmailConfig:
-    password_env = str(data.get("smtp_password_env", ""))
-    return EmailConfig(
-        enabled=bool(data.get("enabled", False)),
-        smtp_host=str(data.get("smtp_host", "localhost")),
-        smtp_port=int(data.get("smtp_port", 587)),
-        smtp_starttls=bool(data.get("smtp_starttls", True)),
-        smtp_username=str(data.get("smtp_username", "")),
-        smtp_password=os.environ.get(password_env) if password_env else None,
-        from_address=str(data.get("from_address", "post-office@localhost")),
-        to_addresses=tuple(str(address) for address in data.get("to_addresses", [])),
-        subject_prefix=str(data.get("subject_prefix", "Post Office")),
-    )
-
-
 def _load_printer(data: dict[str, Any]) -> PrinterConfig:
     return PrinterConfig(
         enabled=bool(data.get("enabled", False)),
-        usb_vendor_id=_parse_int(data.get("usb_vendor_id")),
-        usb_product_id=_parse_int(data.get("usb_product_id")),
-        dry_run=bool(data.get("dry_run", True)),
+        device_path=Path(str(data.get("device_path", "/dev/rfcomm0"))).expanduser(),
+        width_chars=int(data.get("width_chars", 42)),
     )
 
 
-def _load_signal(data: dict[str, Any]) -> SignalConfig:
+def _load_signal(data: dict[str, Any], *, state_dir: Path) -> SignalConfig:
+    default_data_dir = state_dir / "signal-cli"
+    default_media_dir = state_dir / "media" / "signal"
     return SignalConfig(
         enabled=bool(data.get("enabled", False)),
-        signal_cli=str(data.get("signal_cli", "signal-cli")),
-        account=str(data.get("account", "")),
-        receive_timeout_seconds=int(data.get("receive_timeout_seconds", 60)),
+        data_dir=Path(str(data.get("data_dir", default_data_dir))).expanduser(),
+        media_dir=Path(str(data.get("media_dir", default_media_dir))).expanduser(),
+        include_own_messages=bool(data.get("include_own_messages", False)),
         restart_delay_seconds=int(data.get("restart_delay_seconds", 5)),
         max_restart_delay_seconds=int(data.get("max_restart_delay_seconds", 300)),
     )
 
 
-def _load_whatsapp(data: dict[str, Any]) -> WhatsAppConfig:
-    default_command = ["node", "whatsapp-bridge/index.js"]
+def _load_whatsapp(data: dict[str, Any], *, state_dir: Path) -> WhatsAppConfig:
+    default_media_dir = state_dir / "media" / "whatsapp"
     return WhatsAppConfig(
         enabled=bool(data.get("enabled", False)),
-        bridge_command=tuple(str(part) for part in data.get("bridge_command", default_command)),
+        auth_dir=Path(str(data.get("auth_dir", "./state/whatsapp-auth"))).expanduser(),
+        media_dir=Path(str(data.get("media_dir", default_media_dir))).expanduser(),
+        include_own_messages=bool(data.get("include_own_messages", False)),
+        restart_delay_seconds=int(data.get("restart_delay_seconds", 5)),
+        max_restart_delay_seconds=int(data.get("max_restart_delay_seconds", 300)),
     )
-
-
-def _load_instagram(data: dict[str, Any]) -> InstagramConfig:
-    password_env = str(data.get("password_env", ""))
-    return InstagramConfig(
-        enabled=bool(data.get("enabled", False)),
-        username=str(data.get("username", "")),
-        password=os.environ.get(password_env) if password_env else None,
-        poll_interval_seconds=int(data.get("poll_interval_seconds", 300)),
-    )
-
-
-def _parse_int(value: object) -> int | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, int):
-        return value
-    return int(str(value), 0)
 
 
 def validate_config(config: AppConfig) -> list[str]:
-    errors: list[str] = []
-    if config.email.enabled:
-        if not config.email.to_addresses:
-            errors.append("email.to_addresses must not be empty when email is enabled")
-        if not config.email.from_address:
-            errors.append("email.from_address must not be empty when email is enabled")
-    if (
-        config.printer.enabled
-        and not config.printer.dry_run
-        and (config.printer.usb_vendor_id is None or config.printer.usb_product_id is None)
-    ):
-        errors.append("printer USB vendor/product IDs are required unless dry_run is true")
-    if config.sources.signal.enabled and not config.sources.signal.account:
-        errors.append("sources.signal.account is required when Signal is enabled")
-    if config.sources.instagram.enabled and not config.sources.instagram.username:
-        errors.append("sources.instagram.username is required when Instagram is enabled")
-    return errors
+    return []
