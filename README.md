@@ -89,7 +89,3 @@ sudo systemctl restart post-office.service
 ## Disclaimer
 
 Post Office is an unofficial project and is not affiliated with Signal, WhatsApp, or Meta. It uses community tooling to receive messages, so upstream service changes may break integrations.
-
-## License
-
-MIT
