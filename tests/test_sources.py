@@ -128,8 +128,21 @@ def test_summarize_signal_cli_error_prefers_failed_message() -> None:
     assert summarize_signal_cli_error(stderr) == "Failed to read local accounts list"
 
 
+def test_summarize_signal_cli_error_prefers_native_crash_message() -> None:
+    stderr = "\n".join(
+        [
+            "INFO  ProvisioningManagerImpl - Received link information from +41782394751, "
+            "linking in progress ...",
+            "free(): invalid size",
+        ]
+    )
+
+    assert summarize_signal_cli_error(stderr) == "free(): invalid size"
+
+
 def test_signal_link_error_is_retryable_for_closed_link_request() -> None:
     assert signal_link_error_is_retryable("link request error: connection closed")
+    assert signal_link_error_is_retryable("free(): invalid size")
     assert not signal_link_error_is_retryable("signal-cli: error: unrecognized arguments: --bad")
 
 

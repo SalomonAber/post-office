@@ -52,12 +52,17 @@ class SignalAdapter:
             if exit_code == 0:
                 continue
 
+            if signal_data_dir_is_linked(self.config):
+                logger.info("Signal linked even though signal-cli exited with code %s", exit_code)
+                return
+
             error = summarize_signal_cli_error(stderr)
             if signal_link_error_is_retryable(error):
                 retry_after = self.config.restart_delay_seconds
                 logger.info(
-                    "Signal link QR was not scanned before the session closed; "
+                    "Signal link attempt did not finish cleanly (%s); "
                     "printing a new QR code in %ss",
+                    error,
                     retry_after,
                 )
                 await asyncio.sleep(retry_after)
@@ -169,7 +174,12 @@ def summarize_signal_cli_error(stderr: str) -> str:
     if not lines:
         return "no stderr"
     for line in reversed(lines):
-        if line.startswith("error:") or ": error:" in line or line.startswith("Failed "):
+        if (
+            line.startswith("error:")
+            or ": error:" in line
+            or line.startswith("Failed ")
+            or line.startswith("free():")
+        ):
             return line
     first_line = lines[0]
     if first_line.startswith("java.lang.NullPointerException"):
@@ -182,7 +192,10 @@ def summarize_signal_cli_error(stderr: str) -> str:
 
 def signal_link_error_is_retryable(error: str) -> bool:
     normalized = error.casefold()
-    return "link request error: connection closed" in normalized
+    return (
+        "link request error: connection closed" in normalized
+        or "free(): invalid size" in normalized
+    )
 
 
 def signal_data_dir_is_linked(config: SignalConfig) -> bool:
