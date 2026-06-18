@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 from post_office.config import PrinterConfig
@@ -24,6 +25,12 @@ class RecordingPrinter:
     def print_message(self, message: Message) -> list[str]:
         self.message_ids.append(message.id)
         return [message.id]
+
+
+class FailingPrinter:
+    def print_message(self, message: Message) -> list[str]:
+        msg = "paper out"
+        raise RuntimeError(msg)
 
 
 class CountingBanList(BanList):
@@ -125,6 +132,22 @@ def test_print_message_marks_one_banned_message_filtered(tmp_path) -> None:
     assert result.status == "filtered"
     assert printer.message_ids == []
     assert database.undelivered_messages(PRINTER_TARGET) == []
+
+
+def test_print_message_logs_failed_print_error(tmp_path, caplog) -> None:
+    database = Database(tmp_path / "post-office.sqlite3")
+    database.migrate()
+    printable = message()
+    database.insert_message(printable)
+
+    with caplog.at_level(logging.ERROR, logger="post_office.runtime"):
+        result = print_message(database, FailingPrinter(), printable, allowed=True)
+
+    assert result.status == "failed"
+    assert result.error == "paper out"
+    assert "failed to print message" in caplog.text
+    assert "paper out" in caplog.text
+    assert database.undelivered_messages(PRINTER_TARGET) == [printable]
 
 
 def test_pipeline_ingests_and_prints_allowed_message(tmp_path) -> None:

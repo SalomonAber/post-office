@@ -72,8 +72,17 @@ def print_message(
     try:
         receipt = printer.print_message(message)
     except Exception as exc:  # noqa: BLE001 - delivery errors must be recorded and retried later
-        database.record_delivery(message.id, PRINTER_TARGET, "failed", str(exc))
-        return PrintResult(message_id=message.id, status="failed", error=str(exc))
+        error = str(exc)
+        logger.exception(
+            "failed to print message source=%s chat_id=%s sender_id=%s message_id=%s: %s",
+            message.source.value,
+            message.chat_id,
+            message.sender_id,
+            message.id,
+            error,
+        )
+        database.record_delivery(message.id, PRINTER_TARGET, "failed", error)
+        return PrintResult(message_id=message.id, status="failed", error=error)
 
     database.record_delivery(message.id, PRINTER_TARGET, "delivered")
     return PrintResult(message_id=message.id, status="delivered", receipt=receipt)

@@ -42,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
         filtered = sum(1 for result in results if result.status == "filtered")
         failed = sum(1 for result in results if result.status == "failed")
         print(f"delivered={delivered} filtered={filtered} failed={failed}")
+        for result in results:
+            if result.status == "failed":
+                print(f"failed message_id={result.message_id}: {result.error}")
         return 1 if failed else 0
 
     if args.command == "daemon":
