@@ -11,6 +11,7 @@ from post_office.sources.signal import (
     parse_signal_linked_numbers,
     signal_event_kind,
     signal_event_summary,
+    signal_link_error_is_retryable,
     signal_link_command,
     signal_list_linked_numbers_command,
     signal_receive_command,
@@ -125,6 +126,11 @@ def test_summarize_signal_cli_error_prefers_failed_message() -> None:
     )
 
     assert summarize_signal_cli_error(stderr) == "Failed to read local accounts list"
+
+
+def test_signal_link_error_is_retryable_for_closed_link_request() -> None:
+    assert signal_link_error_is_retryable("link request error: connection closed")
+    assert not signal_link_error_is_retryable("signal-cli: error: unrecognized arguments: --bad")
 
 
 def test_parse_signal_linked_numbers_reads_number_lines() -> None:

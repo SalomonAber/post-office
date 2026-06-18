@@ -27,32 +27,43 @@ class SignalAdapter:
         self.config = config
 
     async def prepare(self) -> None:
-        if signal_data_dir_is_linked(self.config):
-            return
+        while not signal_data_dir_is_linked(self.config):
+            command = signal_link_command(self.config)
+            logger.info("starting signal-cli link: %s", " ".join(command))
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=signal_cli_env(self.config),
+            )
+            if process.stdout is None or process.stderr is None:
+                msg = "signal-cli link stdout/stderr was not captured"
+                raise RuntimeError(msg)
 
-        command = signal_link_command(self.config)
-        logger.info("starting signal-cli link: %s", " ".join(command))
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=signal_cli_env(self.config),
-        )
-        if process.stdout is None or process.stderr is None:
-            msg = "signal-cli link stdout/stderr was not captured"
-            raise RuntimeError(msg)
+            async for raw_line in process.stdout:
+                line = raw_line.decode(errors="replace").strip()
+                if not line:
+                    continue
+                print("Scan this Signal QR code from your phone:", flush=True)
+                print(render_terminal_qr(line) or line, flush=True)
 
-        async for raw_line in process.stdout:
-            line = raw_line.decode(errors="replace").strip()
-            if not line:
+            stderr = (await process.stderr.read()).decode(errors="replace").strip()
+            exit_code = await process.wait()
+            if exit_code == 0:
                 continue
-            print("Scan this Signal QR code from your phone:", flush=True)
-            print(render_terminal_qr(line) or line, flush=True)
 
-        stderr = (await process.stderr.read()).decode(errors="replace").strip()
-        exit_code = await process.wait()
-        if exit_code != 0:
-            msg = f"signal-cli link failed: {summarize_signal_cli_error(stderr)}"
+            error = summarize_signal_cli_error(stderr)
+            if signal_link_error_is_retryable(error):
+                retry_after = self.config.restart_delay_seconds
+                logger.info(
+                    "Signal link QR was not scanned before the session closed; "
+                    "printing a new QR code in %ss",
+                    retry_after,
+                )
+                await asyncio.sleep(retry_after)
+                continue
+
+            msg = f"signal-cli link failed: {error}"
             raise RuntimeError(msg)
 
     async def messages(self) -> AsyncIterator[Message]:
@@ -167,6 +178,11 @@ def summarize_signal_cli_error(stderr: str) -> str:
                 return f"{first_line} while retrying cached failed Signal messages"
         return first_line
     return " | ".join(lines[-3:])
+
+
+def signal_link_error_is_retryable(error: str) -> bool:
+    normalized = error.casefold()
+    return "link request error: connection closed" in normalized
 
 
 def signal_data_dir_is_linked(config: SignalConfig) -> bool:
