@@ -2,7 +2,7 @@ from pathlib import Path
 
 from post_office.config import SignalConfig, WhatsAppConfig
 from post_office.models import Source
-from post_office.sources.base import render_terminal_qr
+from post_office.sources.base import render_qr_matrix, render_terminal_qr
 from post_office.sources.signal import (
     normalize_signal_event,
     parse_signal_json_line,
@@ -173,12 +173,17 @@ def test_parse_signal_json_prefix_returns_remainder() -> None:
     assert remainder == '{"receipt":'
 
 
-def test_render_terminal_qr_uses_python_qrcode() -> None:
+def test_render_terminal_qr_uses_visible_blocks() -> None:
     rendered = render_terminal_qr("sgnl://linkdevice?uuid=abc")
 
     assert rendered is not None
     assert "\n" in rendered
-    assert "\033[" in rendered
+    assert "\033[" not in rendered
+    assert any(block in rendered for block in ("█", "▀", "▄"))
+
+
+def test_render_qr_matrix_uses_half_blocks() -> None:
+    assert render_qr_matrix([[1, 0], [0, 1]], quiet_zone=0) == "▀▄"
 
 
 def test_normalize_whatsapp_event() -> None:

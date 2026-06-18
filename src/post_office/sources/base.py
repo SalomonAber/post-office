@@ -33,7 +33,42 @@ def render_terminal_qr(payload: str) -> str | None:
     except ImportError:
         return None
 
-    return str(pyqrcode.create(payload, error="M").terminal(quiet_zone=1)).strip()
+    code = pyqrcode.create(payload, error="M")
+    return render_qr_matrix(code.code, quiet_zone=1)
+
+
+def render_qr_matrix(matrix: list[list[int]], *, quiet_zone: int = 1) -> str:
+    width = len(matrix[0]) if matrix else 0
+    white_row = [0] * (width + quiet_zone * 2)
+    padded = (
+        [white_row.copy() for _ in range(quiet_zone)]
+        + [[0] * quiet_zone + row + [0] * quiet_zone for row in matrix]
+        + [white_row.copy() for _ in range(quiet_zone)]
+    )
+    if len(padded) % 2:
+        padded.append(white_row.copy())
+
+    lines: list[str] = []
+    for row_index in range(0, len(padded), 2):
+        top = padded[row_index]
+        bottom = padded[row_index + 1]
+        lines.append(
+            "".join(
+                _qr_half_block(top_cell, bottom_cell)
+                for top_cell, bottom_cell in zip(top, bottom)
+            )
+        )
+    return "\n".join(lines)
+
+
+def _qr_half_block(top: int, bottom: int) -> str:
+    if top and bottom:
+        return "█"
+    if top:
+        return "▀"
+    if bottom:
+        return "▄"
+    return " "
 
 
 def normalize_attachment(value: object) -> Attachment | None:
