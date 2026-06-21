@@ -6,6 +6,7 @@ import logging
 import mimetypes
 import os
 import shutil
+import sqlite3
 import subprocess
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -20,11 +21,13 @@ logger = logging.getLogger(__name__)
 SIGNAL_CLI = "signal-cli"
 SIGNAL_LINKED_DEVICE_NAME = "post-office"
 SIGNAL_RECEIVE_TIMEOUT_SECONDS = -1
+SIGNAL_MUTED_UNTIL_FIELD_NUMBER = 6
 
 
 class SignalAdapter:
     def __init__(self, config: SignalConfig) -> None:
         self.config = config
+        self.mute_store = SignalMuteStore(config.data_dir)
 
     async def prepare(self) -> None:
         while not signal_data_dir_is_linked(self.config):
@@ -89,6 +92,14 @@ class SignalAdapter:
             stderr_task = asyncio.create_task(process.stderr.read())
             try:
                 async for event in iter_signal_json_events(process.stdout):
+                    if self.config.ignore_muted_chats and self.mute_store.event_is_muted(event):
+                        logger.info(
+                            "ignored muted Signal event kind=%s summary=%s",
+                            signal_event_kind(event),
+                            signal_event_summary(event),
+                        )
+                        continue
+
                     message = normalize_signal_event(
                         event,
                         media_dir=self.config.media_dir,
@@ -160,6 +171,160 @@ def signal_cli_env(config: SignalConfig) -> dict[str, str]:
     if config.data_dir.name == "signal-cli":
         env["XDG_DATA_HOME"] = str(config.data_dir.parent)
     return env
+
+
+class SignalMuteStore:
+    def __init__(self, data_dir: Path) -> None:
+        self.data_dir = data_dir
+
+    def event_is_muted(self, event: dict[str, Any]) -> bool:
+        reference = signal_chat_reference(event)
+        if reference is None:
+            return False
+        chat_id, is_group_chat = reference
+        return self.chat_is_muted(chat_id, is_group_chat=is_group_chat)
+
+    def chat_is_muted(self, chat_id: str, *, is_group_chat: bool) -> bool:
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        for database_path in signal_account_database_paths(self.data_dir):
+            try:
+                mute_until = _read_signal_chat_mute_until(
+                    database_path,
+                    chat_id,
+                    is_group_chat=is_group_chat,
+                )
+            except sqlite3.Error as error:
+                logger.debug("failed to read Signal mute state from %s: %s", database_path, error)
+                continue
+            if mute_until > now_ms:
+                return True
+        return False
+
+
+def signal_account_database_paths(data_dir: Path) -> tuple[Path, ...]:
+    account_data_dir = data_dir / "data"
+    if not account_data_dir.is_dir():
+        return ()
+    return tuple(sorted(account_data_dir.glob("*.d/account.db")))
+
+
+def signal_chat_reference(event: dict[str, Any]) -> tuple[str, bool] | None:
+    envelope = event.get("envelope", event)
+    if not isinstance(envelope, dict):
+        return None
+
+    data_message = _extract_data_message(envelope)
+    if not isinstance(data_message, dict) or not data_message:
+        return None
+
+    source = str(envelope.get("source") or envelope.get("sourceNumber") or "unknown")
+    group_info = data_message.get("groupInfo") or envelope.get("groupInfo") or {}
+    if not isinstance(group_info, dict):
+        group_info = {}
+    group_id = group_info.get("groupId")
+    if group_id:
+        return str(group_id), True
+
+    destination = data_message.get("destination") or data_message.get("destinationNumber")
+    return str(destination or source), False
+
+
+def _read_signal_chat_mute_until(
+    database_path: Path,
+    chat_id: str,
+    *,
+    is_group_chat: bool,
+) -> int:
+    uri = f"file:{database_path}?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=1) as connection:
+        if is_group_chat:
+            return _read_signal_group_mute_until(connection, chat_id)
+        return _read_signal_recipient_mute_until(connection, chat_id)
+
+
+def _read_signal_recipient_mute_until(connection: sqlite3.Connection, chat_id: str) -> int:
+    cursor = connection.execute(
+        """
+        SELECT mute_until
+        FROM recipient
+        WHERE number = ? OR aci = ? OR pni = ? OR username = ?
+        LIMIT 1
+        """,
+        (chat_id, chat_id, chat_id, chat_id),
+    )
+    row = cursor.fetchone()
+    return int(row[0]) if row is not None and row[0] is not None else 0
+
+
+def _read_signal_group_mute_until(connection: sqlite3.Connection, chat_id: str) -> int:
+    group_id = _decode_signal_group_id(chat_id)
+    if group_id is None:
+        return 0
+
+    for table in ("group_v1", "group_v2"):
+        cursor = connection.execute(
+            f"SELECT storage_record FROM {table} WHERE group_id = ? LIMIT 1",
+            (group_id,),
+        )
+        row = cursor.fetchone()
+        if row is None or row[0] is None:
+            continue
+        mute_until = _protobuf_uint64_field(row[0], SIGNAL_MUTED_UNTIL_FIELD_NUMBER)
+        if mute_until:
+            return mute_until
+    return 0
+
+
+def _decode_signal_group_id(chat_id: str) -> bytes | None:
+    import base64
+    import binascii
+
+    normalized = chat_id.strip()
+    padding = "=" * (-len(normalized) % 4)
+    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+        try:
+            return decoder(normalized + padding)
+        except (binascii.Error, ValueError):
+            continue
+    return None
+
+
+def _protobuf_uint64_field(payload: bytes, field_number: int) -> int:
+    index = 0
+    while index < len(payload):
+        key, index = _read_protobuf_varint(payload, index)
+        wire_type = key & 0b111
+        current_field_number = key >> 3
+        if wire_type == 0:
+            value, index = _read_protobuf_varint(payload, index)
+            if current_field_number == field_number:
+                return value
+            continue
+        if wire_type == 1:
+            index += 8
+        elif wire_type == 2:
+            length, index = _read_protobuf_varint(payload, index)
+            index += length
+        elif wire_type == 5:
+            index += 4
+        else:
+            return 0
+    return 0
+
+
+def _read_protobuf_varint(payload: bytes, index: int) -> tuple[int, int]:
+    value = 0
+    shift = 0
+    while index < len(payload):
+        byte = payload[index]
+        index += 1
+        value |= (byte & 0x7F) << shift
+        if byte < 0x80:
+            return value, index
+        shift += 7
+        if shift >= 64:
+            break
+    return 0, len(payload)
 
 
 def signal_retry_delay(config: SignalConfig, consecutive_failures: int) -> int:

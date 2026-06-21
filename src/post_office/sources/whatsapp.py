@@ -59,7 +59,10 @@ class WhatsAppAdapter:
                     except json.JSONDecodeError:
                         logger.warning("ignored invalid WhatsApp bridge JSON line")
                         continue
-                    message = normalize_baileys_event(event)
+                    message = normalize_baileys_event(
+                        event,
+                        ignore_muted_chats=self.config.ignore_muted_chats,
+                    )
                     if message is not None:
                         messages += 1
                         yield message
@@ -99,6 +102,8 @@ class WhatsAppAdapter:
         env["POST_OFFICE_WHATSAPP_MEDIA_DIR"] = str(self.config.media_dir)
         if self.config.include_own_messages:
             env["POST_OFFICE_WHATSAPP_INCLUDE_OWN_MESSAGES"] = "1"
+        if self.config.ignore_muted_chats:
+            env["POST_OFFICE_WHATSAPP_IGNORE_MUTED_CHATS"] = "1"
         return env
 
 
@@ -141,8 +146,14 @@ def log_bridge_event(event: dict[str, Any]) -> None:
     logger.info("ignored WhatsApp bridge event type=%s", event_type)
 
 
-def normalize_baileys_event(event: dict[str, Any]) -> Message | None:
+def normalize_baileys_event(
+    event: dict[str, Any],
+    *,
+    ignore_muted_chats: bool = False,
+) -> Message | None:
     if event.get("type") not in {None, "message"}:
+        return None
+    if ignore_muted_chats and _chat_is_muted(event):
         return None
     key = event.get("key", {})
     if not isinstance(key, dict):
@@ -214,3 +225,10 @@ def _timestamp_seconds(value: object) -> int:
             timestamp -= 1 << 64
         return timestamp
     return 0
+
+
+def _chat_is_muted(event: dict[str, Any]) -> bool:
+    if event.get("chatMuted") is True:
+        return True
+    chat = event.get("chat")
+    return isinstance(chat, dict) and _timestamp_seconds(chat.get("muteEndTime")) > 0

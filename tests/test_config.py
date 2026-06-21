@@ -9,6 +9,7 @@ def test_load_whatsapp_config(tmp_path) -> None:
         enabled = true
         auth_dir = "/var/lib/post-office/whatsapp/auth"
         include_own_messages = true
+        ignore_muted_chats = false
         restart_delay_seconds = 7
         max_restart_delay_seconds = 90
         """
@@ -19,6 +20,7 @@ def test_load_whatsapp_config(tmp_path) -> None:
     assert config.sources.whatsapp.enabled
     assert str(config.sources.whatsapp.auth_dir) == "/var/lib/post-office/whatsapp/auth"
     assert config.sources.whatsapp.include_own_messages
+    assert not config.sources.whatsapp.ignore_muted_chats
     assert config.sources.whatsapp.restart_delay_seconds == 7
     assert config.sources.whatsapp.max_restart_delay_seconds == 90
 
@@ -32,6 +34,7 @@ def test_load_signal_config(tmp_path) -> None:
         data_dir = "/var/lib/post-office/signal"
         media_dir = "/var/lib/post-office/media/signal"
         include_own_messages = true
+        ignore_muted_chats = false
         restart_delay_seconds = 7
         max_restart_delay_seconds = 90
         """
@@ -43,8 +46,19 @@ def test_load_signal_config(tmp_path) -> None:
     assert str(config.sources.signal.data_dir) == "/var/lib/post-office/signal"
     assert str(config.sources.signal.media_dir) == "/var/lib/post-office/media/signal"
     assert config.sources.signal.include_own_messages
+    assert not config.sources.signal.ignore_muted_chats
     assert config.sources.signal.restart_delay_seconds == 7
     assert config.sources.signal.max_restart_delay_seconds == 90
+
+
+def test_source_configs_ignore_muted_chats_by_default(tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("")
+
+    config = load_config(config_path)
+
+    assert config.sources.signal.ignore_muted_chats
+    assert config.sources.whatsapp.ignore_muted_chats
 
 
 def test_load_printer_config(tmp_path) -> None:

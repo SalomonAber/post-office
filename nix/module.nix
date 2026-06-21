@@ -59,6 +59,7 @@ let
         data_dir = "${cfg.stateDir}/signal-cli";
         media_dir = "${cfg.stateDir}/media/signal";
         include_own_messages = cfg.signal.includeOwnMessages;
+        ignore_muted_chats = cfg.signal.ignoreMutedChats;
         restart_delay_seconds = cfg.signal.restartDelaySeconds;
         max_restart_delay_seconds = cfg.signal.maxRestartDelaySeconds;
       };
@@ -68,6 +69,7 @@ let
         auth_dir = "${cfg.stateDir}/whatsapp-auth";
         media_dir = "${cfg.stateDir}/media/whatsapp";
         include_own_messages = cfg.whatsapp.includeOwnMessages;
+        ignore_muted_chats = cfg.whatsapp.ignoreMutedChats;
         restart_delay_seconds = cfg.whatsapp.restartDelaySeconds;
         max_restart_delay_seconds = cfg.whatsapp.maxRestartDelaySeconds;
       };
@@ -185,6 +187,11 @@ in
         default = false;
         description = "Print Signal messages sent by the linked account.";
       };
+      ignoreMutedChats = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Ignore Signal messages from muted direct chats and group chats.";
+      };
       restartDelaySeconds = lib.mkOption {
         type = lib.types.ints.positive;
         default = 5;
@@ -207,6 +214,11 @@ in
         type = lib.types.bool;
         default = false;
         description = "Print WhatsApp messages sent by the linked account.";
+      };
+      ignoreMutedChats = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Ignore WhatsApp messages from muted chats.";
       };
       restartDelaySeconds = lib.mkOption {
         type = lib.types.ints.positive;

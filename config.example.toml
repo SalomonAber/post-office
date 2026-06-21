@@ -20,6 +20,7 @@ enabled = false
 data_dir = "./state/signal-cli"
 media_dir = "./state/media/signal"
 include_own_messages = false
+ignore_muted_chats = true
 restart_delay_seconds = 5
 max_restart_delay_seconds = 300
 
@@ -28,5 +29,6 @@ enabled = false
 auth_dir = "./state/whatsapp-auth"
 media_dir = "./state/media/whatsapp"
 include_own_messages = false
+ignore_muted_chats = true
 restart_delay_seconds = 5
 max_restart_delay_seconds = 300

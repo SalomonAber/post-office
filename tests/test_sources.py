@@ -4,15 +4,19 @@ from post_office.config import SignalConfig, WhatsAppConfig
 from post_office.models import Source
 from post_office.sources.base import render_qr_matrix, render_terminal_qr
 from post_office.sources.signal import (
+    SignalMuteStore,
+    _protobuf_uint64_field,
     normalize_signal_event,
     parse_signal_json_line,
     parse_signal_json_output,
     parse_signal_json_prefix,
     parse_signal_linked_numbers,
+    signal_account_database_paths,
+    signal_chat_reference,
     signal_event_kind,
     signal_event_summary,
-    signal_link_error_is_retryable,
     signal_link_command,
+    signal_link_error_is_retryable,
     signal_list_linked_numbers_command,
     signal_receive_command,
     signal_retry_delay,
@@ -236,6 +240,48 @@ def test_normalize_whatsapp_direct_event() -> None:
     assert message.sender_name == "Sender"
 
 
+def test_normalize_whatsapp_ignores_muted_chat() -> None:
+    message = normalize_baileys_event(
+        {
+            "key": {"remoteJid": "muted@g.us", "participant": "sender@s.whatsapp.net"},
+            "chatMuted": True,
+            "messageTimestamp": 1781164800,
+            "message": {"conversation": "quiet"},
+        },
+        ignore_muted_chats=True,
+    )
+
+    assert message is None
+
+
+def test_normalize_whatsapp_ignores_muted_direct_chat() -> None:
+    message = normalize_baileys_event(
+        {
+            "key": {"remoteJid": "sender@s.whatsapp.net"},
+            "chatMuted": True,
+            "messageTimestamp": 1781164800,
+            "message": {"conversation": "quiet direct"},
+        },
+        ignore_muted_chats=True,
+    )
+
+    assert message is None
+
+
+def test_normalize_whatsapp_keeps_muted_chat_when_not_configured() -> None:
+    message = normalize_baileys_event(
+        {
+            "key": {"remoteJid": "muted@g.us", "participant": "sender@s.whatsapp.net"},
+            "chat": {"muteEndTime": 1781164900},
+            "messageTimestamp": 1781164800,
+            "message": {"conversation": "quiet"},
+        }
+    )
+
+    assert message is not None
+    assert message.text == "quiet"
+
+
 def test_normalize_whatsapp_image_attachment() -> None:
     message = normalize_baileys_event(
         {
@@ -297,6 +343,108 @@ def test_normalize_signal_group_event() -> None:
     assert message.is_group_chat
     assert message.chat_id == "group-1"
     assert message.chat_name == "Signal Group"
+
+
+def test_signal_chat_reference_reads_direct_and_group_chats() -> None:
+    direct = {
+        "envelope": {
+            "sourceNumber": "+49123",
+            "dataMessage": {"message": "hello"},
+        }
+    }
+    group = {
+        "envelope": {
+            "sourceNumber": "+49123",
+            "dataMessage": {"groupInfo": {"groupId": "Z3JvdXA="}},
+        }
+    }
+
+    assert signal_chat_reference(direct) == ("+49123", False)
+    assert signal_chat_reference(group) == ("Z3JvdXA=", True)
+
+
+def test_signal_account_database_paths_finds_signal_cli_account_dbs(tmp_path) -> None:
+    account_dir = tmp_path / "signal-cli" / "data" / "+49123.d"
+    account_dir.mkdir(parents=True)
+    account_db = account_dir / "account.db"
+    account_db.touch()
+
+    assert signal_account_database_paths(tmp_path / "signal-cli") == (account_db,)
+
+
+def test_signal_mute_store_ignores_muted_direct_chat(tmp_path) -> None:
+    import sqlite3
+
+    account_dir = tmp_path / "signal-cli" / "data" / "+49123.d"
+    account_dir.mkdir(parents=True)
+    connection = sqlite3.connect(account_dir / "account.db")
+    connection.execute(
+        """
+        CREATE TABLE recipient (
+          number TEXT,
+          aci TEXT,
+          pni TEXT,
+          username TEXT,
+          mute_until INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    connection.execute(
+        "INSERT INTO recipient (number, mute_until) VALUES (?, ?)",
+        ("+49123", 4_000_000_000_000),
+    )
+    connection.commit()
+    connection.close()
+    event = {
+        "envelope": {
+            "sourceNumber": "+49123",
+            "dataMessage": {"message": "quiet"},
+        }
+    }
+
+    assert SignalMuteStore(tmp_path / "signal-cli").event_is_muted(event)
+
+
+def test_signal_mute_store_ignores_muted_group_chat(tmp_path) -> None:
+    import sqlite3
+
+    account_dir = tmp_path / "signal-cli" / "data" / "+49123.d"
+    account_dir.mkdir(parents=True)
+    connection = sqlite3.connect(account_dir / "account.db")
+    connection.execute(
+        """
+        CREATE TABLE recipient (
+          number TEXT,
+          aci TEXT,
+          pni TEXT,
+          username TEXT,
+          mute_until INTEGER
+        )
+        """
+    )
+    connection.execute("CREATE TABLE group_v1 (group_id BLOB, storage_record BLOB)")
+    connection.execute("CREATE TABLE group_v2 (group_id BLOB, storage_record BLOB)")
+    connection.execute(
+        "INSERT INTO group_v2 (group_id, storage_record) VALUES (?, ?)",
+        (b"group", bytes([0x30, 0x80, 0x80, 0x95, 0x82, 0xBA, 0x74])),
+    )
+    connection.commit()
+    connection.close()
+    event = {
+        "envelope": {
+            "sourceNumber": "+49123",
+            "dataMessage": {
+                "message": "quiet group",
+                "groupInfo": {"groupId": "Z3JvdXA="},
+            },
+        }
+    }
+
+    assert SignalMuteStore(tmp_path / "signal-cli").event_is_muted(event)
+
+
+def test_protobuf_uint64_field_reads_signal_muted_until_field() -> None:
+    assert _protobuf_uint64_field(bytes([0x30, 0xAC, 0x02]), 6) == 300
 
 
 def test_normalize_signal_attachment_metadata() -> None:

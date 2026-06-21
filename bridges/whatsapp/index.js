@@ -14,11 +14,13 @@ const authDir = process.env.POST_OFFICE_WHATSAPP_AUTH_DIR ?? './state/whatsapp-a
 const mediaDir = process.env.POST_OFFICE_WHATSAPP_MEDIA_DIR ?? './state/media/whatsapp';
 const browserName = process.env.POST_OFFICE_WHATSAPP_BROWSER ?? 'Desktop';
 const includeOwnMessages = process.env.POST_OFFICE_WHATSAPP_INCLUDE_OWN_MESSAGES === '1';
+const ignoreMutedChats = process.env.POST_OFFICE_WHATSAPP_IGNORE_MUTED_CHATS === '1';
 const logger = Pino(
   { level: process.env.POST_OFFICE_WHATSAPP_LOG_LEVEL ?? 'warn' },
   Pino.destination(2),
 );
 let socket;
+const mutedChats = new Map();
 
 function emit(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -56,10 +58,38 @@ async function normalizeMessage(message) {
     senderId,
     senderName: message.pushName,
     key,
+    chatMuted: chatIsMuted(chatId),
     message: message.message,
     messageTimestamp: normalizeTimestamp(message.messageTimestamp),
     attachments,
   };
+}
+
+function rememberMutedChats(chats) {
+  for (const chat of chats ?? []) {
+    const chatId = chat.id ?? chat.jid;
+    if (!chatId || !('muteEndTime' in chat)) {
+      continue;
+    }
+    const muteEndTime = normalizeTimestamp(chat.muteEndTime);
+    if (muteEndTime && muteEndTime > 0) {
+      mutedChats.set(chatId, muteEndTime);
+    } else {
+      mutedChats.delete(chatId);
+    }
+  }
+}
+
+function chatIsMuted(chatId) {
+  const muteEndTime = mutedChats.get(chatId);
+  if (!muteEndTime) {
+    return false;
+  }
+  if (muteEndTime <= Math.floor(Date.now() / 1000)) {
+    mutedChats.delete(chatId);
+    return false;
+  }
+  return true;
 }
 
 async function downloadImageAttachments(message) {
@@ -128,6 +158,9 @@ async function start() {
   });
 
   socket.ev.on('creds.update', saveCreds);
+  socket.ev.on('messaging-history.set', ({ chats }) => rememberMutedChats(chats));
+  socket.ev.on('chats.upsert', rememberMutedChats);
+  socket.ev.on('chats.update', rememberMutedChats);
 
   socket.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
     if (qr) {
@@ -147,6 +180,9 @@ async function start() {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     for (const message of messages) {
       if (!message.message || (message.key.fromMe && !includeOwnMessages)) {
+        continue;
+      }
+      if (ignoreMutedChats && chatIsMuted(message.key.remoteJid)) {
         continue;
       }
       try {

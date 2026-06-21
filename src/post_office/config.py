@@ -21,6 +21,7 @@ class SignalConfig:
     data_dir: Path = Path("./state/signal-cli")
     media_dir: Path = Path("./state/media/signal")
     include_own_messages: bool = False
+    ignore_muted_chats: bool = True
     restart_delay_seconds: int = 5
     max_restart_delay_seconds: int = 300
 
@@ -31,6 +32,7 @@ class WhatsAppConfig:
     auth_dir: Path = Path("./state/whatsapp-auth")
     media_dir: Path = Path("./state/media/whatsapp")
     include_own_messages: bool = False
+    ignore_muted_chats: bool = True
     restart_delay_seconds: int = 5
     max_restart_delay_seconds: int = 300
 
@@ -107,6 +109,7 @@ def _load_signal(data: dict[str, Any], *, state_dir: Path) -> SignalConfig:
         data_dir=Path(str(data.get("data_dir", default_data_dir))).expanduser(),
         media_dir=Path(str(data.get("media_dir", default_media_dir))).expanduser(),
         include_own_messages=bool(data.get("include_own_messages", False)),
+        ignore_muted_chats=bool(data.get("ignore_muted_chats", True)),
         restart_delay_seconds=int(data.get("restart_delay_seconds", 5)),
         max_restart_delay_seconds=int(data.get("max_restart_delay_seconds", 300)),
     )
@@ -119,6 +122,7 @@ def _load_whatsapp(data: dict[str, Any], *, state_dir: Path) -> WhatsAppConfig:
         auth_dir=Path(str(data.get("auth_dir", "./state/whatsapp-auth"))).expanduser(),
         media_dir=Path(str(data.get("media_dir", default_media_dir))).expanduser(),
         include_own_messages=bool(data.get("include_own_messages", False)),
+        ignore_muted_chats=bool(data.get("ignore_muted_chats", True)),
         restart_delay_seconds=int(data.get("restart_delay_seconds", 5)),
         max_restart_delay_seconds=int(data.get("max_restart_delay_seconds", 300)),
     )
